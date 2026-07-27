@@ -6,6 +6,7 @@ import SharedCore
 /// shared Kotlin `HomeRepository`. Tapping a poster pushes the detail screen.
 struct HomeView: View {
     @StateObject private var model = HomeViewModel()
+    @StateObject private var heroTrailer = HomeHeroTrailerViewModel()
     @State private var resume: ResumeTarget?
 
     /// Whether the hero backdrop artwork only renders while the hero carousel is focused (the
@@ -15,6 +16,10 @@ struct HomeView: View {
     /// anyone who preferred it. UserDefaults-backed and local-only (not synced): it's a per-device
     /// display preference, not account state, so no shared/Kotlin settings plumbing is needed.
     @AppStorage("hero_poster_focus_only") private var heroPosterFocusOnly = false
+    /// Local display preferences: Home trailers are deliberately device-specific, like the
+    /// existing hero-art focus toggle, and must not unexpectedly start on another profile/device.
+    @AppStorage("home_hero_trailer_enabled") private var heroTrailerEnabled = true
+    @AppStorage("home_hero_trailer_delay_seconds") private var heroTrailerDelaySeconds = 7
 
     // Hero carousel state, hoisted here so the full-bleed backdrop (behind the scroll) and the
     // focusable paged carousel (inside the scroll) share the same index. The carousel is a paged
@@ -54,6 +59,18 @@ struct HomeView: View {
                 if let hero = currentHero {
                     Group {
                         HomeHeroBackdrop(item: hero)
+                        if heroTrailer.heroID == hero.id, let trailer = heroTrailer.trailerURL {
+                            TrailerHeroPlayer(
+                                urlString: trailer,
+                                onFailure: { heroTrailer.trailerFailed(for: hero.id) }
+                            )
+                            .frame(height: Theme.Size.heroBackdropHeight)
+                            .frame(maxWidth: .infinity)
+                            .frame(maxHeight: .infinity, alignment: .top)
+                            .ignoresSafeArea()
+                            .id(hero.id)
+                            .transition(.opacity)
+                        }
                         HomeHeroScrim()
                     }
                     .opacity(heroPosterFocusOnly ? (heroFocused ? 1 : 0) : 1)
@@ -106,13 +123,18 @@ struct HomeView: View {
             }
             .onChange(of: heroIndex) { _, _ in
                 lastHeroChange = Date()
+                scheduleHeroTrailer()
             }
             .onChange(of: heroItems.count) { _, newCount in
                 if heroIndex >= newCount { heroIndex = 0 }
             }
             .onChange(of: heroItems.map(\.id)) { _, _ in
                 prefetchHeroArt()
+                scheduleHeroTrailer()
             }
+            .onChange(of: heroFocused) { _, _ in scheduleHeroTrailer() }
+            .onChange(of: heroTrailerEnabled) { _, _ in scheduleHeroTrailer() }
+            .onChange(of: heroTrailerDelaySeconds) { _, _ in scheduleHeroTrailer() }
             .navigationDestination(for: TitleRoute.self) { route in
                 DetailView(preview: route.preview)
             }
@@ -142,8 +164,24 @@ struct HomeView: View {
         .onAppear {
             model.start()
             prefetchHeroArt()
+            scheduleHeroTrailer()
         }
-        .onDisappear { model.stop() }
+        .onDisappear {
+            heroTrailer.schedule(for: nil, isEnabled: false, isFocused: false, delaySeconds: 0)
+            model.stop()
+        }
+        .overlay(alignment: .topTrailing) {
+            if heroTrailer.trailerURL != nil, heroFocused {
+                HeroTrailerMuteButton()
+                    .padding(Theme.Spacing.screen)
+                    .transition(.opacity)
+            }
+        }
+        .onPlayPauseCommand {
+            if heroTrailer.trailerURL != nil, heroFocused {
+                HeroTrailerAudioState.shared.toggleMuted()
+            }
+        }
     }
 
     /// The paged hero carousel plus its (static) page dots. Fixed height everywhere: paging or
@@ -181,6 +219,15 @@ struct HomeView: View {
             if let logo, !logo.isEmpty, let url = URL(string: logo) { urls.append(url) }
         }
         ArtworkStore.prefetch(urls)
+    }
+
+    private func scheduleHeroTrailer() {
+        heroTrailer.schedule(
+            for: currentHero,
+            isEnabled: heroTrailerEnabled,
+            isFocused: heroFocused,
+            delaySeconds: heroTrailerDelaySeconds
+        )
     }
 
     @ViewBuilder

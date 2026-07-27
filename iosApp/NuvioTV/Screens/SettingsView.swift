@@ -22,6 +22,8 @@ struct SettingsView: View {
     /// independently here) so this toggle can flip the Home hero's focus-gated artwork fade back
     /// on for testers who preferred the original behavior. Local-only, not synced.
     @AppStorage("hero_poster_focus_only") private var heroPosterFocusOnly = false
+    @AppStorage("home_hero_trailer_enabled") private var homeHeroTrailerEnabled = true
+    @AppStorage("home_hero_trailer_delay_seconds") private var homeHeroTrailerDelaySeconds = 7
 
     var body: some View {
         NavigationStack {
@@ -199,6 +201,18 @@ struct SettingsView: View {
                                 isOn: heroPosterFocusOnly
                             ) {
                                 heroPosterFocusOnly.toggle()
+                            }
+                            SettingsToggleRow(
+                                title: "Home Hero Trailers",
+                                subtitle: homeHeroTrailerEnabled
+                                    ? "On \u{00B7} Play the selected title's trailer after a short delay"
+                                    : "Off \u{00B7} Keep Home heroes as static artwork",
+                                isOn: homeHeroTrailerEnabled
+                            ) {
+                                homeHeroTrailerEnabled.toggle()
+                            }
+                            if homeHeroTrailerEnabled {
+                                HomeHeroTrailerDelayRow(delaySeconds: $homeHeroTrailerDelaySeconds)
                             }
                         }
 
@@ -1278,6 +1292,48 @@ private struct DefaultPlayerRow: View {
                 }
             }
         }
+    }
+}
+
+/// Device-local dwell time before a focused Home banner replaces its artwork with a trailer.
+/// Matching Android's longer options keeps accidental trailer starts from firing while browsing.
+private struct HomeHeroTrailerDelayRow: View {
+    @Binding var delaySeconds: Int
+    private let options = [3, 5, 7, 10, 15, 20, 25, 30]
+
+    var body: some View {
+        Menu {
+            Picker("Start trailer after", selection: $delaySeconds) {
+                ForEach(options, id: \.self) { seconds in
+                    Text("\(seconds) seconds").tag(seconds)
+                }
+            }
+        } label: {
+            HStack(spacing: Theme.Spacing.lg) {
+                Image(systemName: "timer")
+                    .font(.system(size: 34))
+                    .foregroundStyle(Theme.Palette.accent)
+                VStack(alignment: .leading, spacing: Theme.Spacing.xxs) {
+                    Text("Trailer delay")
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Palette.textPrimary)
+                    Text("Start after \(delaySeconds) seconds of focus")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Palette.textSecondary)
+                }
+                Spacer()
+                Text("\(delaySeconds)s")
+                    .font(Theme.Font.body)
+                    .foregroundStyle(Theme.Palette.textSecondary)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 28))
+                    .foregroundStyle(Theme.Palette.textSecondary)
+            }
+            .padding(Theme.Spacing.lg)
+            .frame(maxWidth: .infinity)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.settingsRow)
     }
 }
 
